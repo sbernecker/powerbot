@@ -118,8 +118,16 @@ if prompt := st.chat_input("Tell me about the study you're planning..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    _BLOCK_KEYS = {"type", "text", "id", "name", "input"}
+
+    def _sanitize(content):
+        if isinstance(content, list):
+            return [{k: v for k, v in b.items() if k in _BLOCK_KEYS} for b in content]
+        return content
+
     api_messages = [
-        {"role": m["role"], "content": m["content"]} for m in st.session_state.messages
+        {"role": m["role"], "content": _sanitize(m["content"])}
+        for m in st.session_state.messages
     ]
 
     with st.chat_message("assistant"):
