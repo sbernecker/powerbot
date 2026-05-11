@@ -92,10 +92,31 @@ init_session()
 system_prompt_text = SYSTEM_PROMPT_PATH.read_text()
 client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
+def format_transcript() -> str:
+    lines = []
+    for msg in st.session_state.get("messages", []):
+        role = msg["role"].upper()
+        content = msg["content"]
+        if isinstance(content, str):
+            text = content
+        else:
+            text = "\n".join(
+                b.get("text", "") for b in content if b.get("type") == "text"
+            )
+        lines.append(f"{role}:\n{text}")
+    return "\n\n---\n\n".join(lines)
+
+
 with st.sidebar:
     st.markdown("**Session**")
     st.code(st.session_state.session_id, language=None)
-    st.caption(f"Logging to `{st.session_state.log_path}`")
+    if st.session_state.get("messages"):
+        st.download_button(
+            "⬇ Download transcript",
+            data=format_transcript(),
+            file_name=f"powerbot-{st.session_state.session_id}.txt",
+            mime="text/plain",
+        )
     if st.button("Start new conversation"):
         for key in ("messages", "session_id", "log_path"):
             st.session_state.pop(key, None)
