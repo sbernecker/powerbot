@@ -9,6 +9,7 @@ from pathlib import Path
 
 import anthropic
 import streamlit as st
+from supabase import create_client
 
 MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 4096
@@ -42,6 +43,11 @@ if not check_password():
     st.stop()
 
 
+@st.cache_resource
+def get_supabase():
+    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+
+
 def init_session() -> None:
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -59,17 +65,23 @@ def init_session() -> None:
 
 
 def log_event(role: str, content) -> None:
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "role": role,
+        "content": content,
+    }
     with st.session_state.log_path.open("a") as f:
-        f.write(
-            json.dumps(
-                {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "role": role,
-                    "content": content,
-                }
-            )
-            + "\n"
-        )
+        f.write(json.dumps(entry) + "\n")
+    try:
+        content_str = content if isinstance(content, str) else json.dumps(content)
+        get_supabase().table("conversations").insert({
+            "session_id": st.session_state.session_id,
+            "timestamp": entry["timestamp"],
+            "role": role,
+            "content": content_str,
+        }).execute()
+    except Exception:
+        pass
 
 
 def block_field(block, name: str):
@@ -88,10 +100,6 @@ def render_assistant_blocks(content) -> None:
                 st.caption(f"🔎 Searched the web: *{query}*")
 
 
-init_session()
-system_prompt_text = SYSTEM_PROMPT_PATH.read_text()
-client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
-
 def format_transcript() -> str:
     lines = []
     for msg in st.session_state.get("messages", []):
@@ -106,6 +114,10 @@ def format_transcript() -> str:
         lines.append(f"{role}:\n{text}")
     return "\n\n---\n\n".join(lines)
 
+
+init_session()
+system_prompt_text = SYSTEM_PROMPT_PATH.read_text()
+client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
 with st.sidebar:
     st.markdown("**Session**")
