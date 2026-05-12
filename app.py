@@ -48,15 +48,42 @@ def get_supabase():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 
-def init_session() -> None:
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    if "session_id" not in st.session_state:
-        st.session_state.session_id = (
-            datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-            + "-"
-            + uuid.uuid4().hex[:6]
+def load_messages(session_id: str) -> list:
+    try:
+        resp = (
+            get_supabase().table("conversations")
+            .select("role,content")
+            .eq("session_id", session_id)
+            .order("timestamp")
+            .execute()
         )
+    except Exception:
+        return []
+    messages = []
+    for row in resp.data:
+        content = row["content"]
+        try:
+            content = json.loads(content)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            pass
+        messages.append({"role": row["role"], "content": content})
+    return messages
+
+
+def init_session() -> None:
+    if "session_id" not in st.session_state:
+        url_session = st.query_params.get("session")
+        if url_session:
+            st.session_state.session_id = url_session
+            st.session_state.messages = load_messages(url_session)
+        else:
+            st.session_state.session_id = (
+                datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+                + "-"
+                + uuid.uuid4().hex[:6]
+            )
+            st.session_state.messages = []
+            st.query_params["session"] = st.session_state.session_id
     if "log_path" not in st.session_state:
         CONVERSATIONS_DIR.mkdir(exist_ok=True)
         st.session_state.log_path = (
@@ -122,6 +149,7 @@ client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 with st.sidebar:
     st.markdown("**Session**")
     st.code(st.session_state.session_id, language=None)
+    st.caption("Bookmark this page to resume this conversation later.")
     if st.session_state.get("messages"):
         st.download_button(
             "⬇ Download transcript",
@@ -132,6 +160,7 @@ with st.sidebar:
     if st.button("Start new conversation"):
         for key in ("messages", "session_id", "log_path"):
             st.session_state.pop(key, None)
+        st.query_params.clear()
         st.rerun()
 
 st.title("Powerbot")
